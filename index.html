@@ -60,6 +60,12 @@ h1,h2,h3,p{overflow-wrap:break-word}
 }
 @keyframes navItemIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 
+/* Hero particle orb */
+.hero-orb{position:absolute;left:50%;top:44%;width:min(620px,130vw);aspect-ratio:1;transform:translate(-50%,-50%);pointer-events:none;z-index:0;opacity:0;transition:opacity 1.2s ease}
+.hero-orb.ready{opacity:1}
+.hero > :not(.hero-orb){position:relative;z-index:1}
+.hero h1{text-shadow:0 2px 24px rgba(10,11,13,.7)}
+
 /* Page transitions */
 .page.page-enter header{animation:fadeIn .4s ease both}
 .page.page-enter section,.page.page-enter footer{animation:pageIn .6s cubic-bezier(.22,1,.36,1) both}
@@ -96,7 +102,8 @@ h1,h2,h3,p{overflow-wrap:break-word}
 </nav>
 </header>
 
-<section style="position: relative; padding: clamp(48px, 10vw, 72px) 24px clamp(56px, 12vw, 88px); text-align: center; background: radial-gradient(ellipse 380px 300px at 50% 42%, rgba(46,190,120,0.34), rgba(10,11,13,0) 72%)">
+<section class="hero" style="position: relative; padding: clamp(48px, 10vw, 72px) 24px clamp(56px, 12vw, 88px); text-align: center; background: radial-gradient(ellipse 380px 300px at 50% 42%, rgba(46,190,120,0.2), rgba(10,11,13,0) 72%)">
+<canvas class="hero-orb" aria-hidden="true"></canvas>
 <h1 style="margin: 0 auto; max-width: 820px; font-size: clamp(32px, 8vw, 64px); line-height: 1.08; font-weight: 700; letter-spacing: -0.03em">Accelerating value through <span style="color: #3DDC97">AI-driven</span> growth.</h1>
 <p style="margin: 28px auto 0; max-width: 520px; font-size: 17px; line-height: 1.6; color: #B4B4BC">We build the automations and AI systems that take growing operators from manual to industry-leading.</p>
 <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 36px">
@@ -762,6 +769,144 @@ h1,h2,h3,p{overflow-wrap:break-word}
     document.querySelectorAll(".pill").forEach(function(b){b.setAttribute("aria-pressed","false");});
     thanks.hidden=true;form.hidden=false;
   });
+})();
+</script>
+<script>
+// Hero particle orb: a slowly turning sphere of fine dust with flowing ribbons of light.
+(function(){
+  var canvas=document.querySelector(".hero-orb");
+  if(!canvas||!canvas.getContext) return;
+  var ctx=canvas.getContext("2d");
+  var reduceMotion=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var N=window.innerWidth<640?4500:7500;
+  var LEVELS=12;
+  var COLORS=[[61,220,151],[160,150,255],[190,255,228]]; // brand green, soft lavender, pale mint
+
+  // Ribbons: wavy bands that sweep around the sphere, each with its own colour, tilt and speed
+  var RIBBONS=[
+    {color:0,tilt:0.5,spin:0.23,wave:0.32,waves:2,speed:0.9,phase:0.0,width:0.12},
+    {color:1,tilt:2.1,spin:-0.17,wave:0.26,waves:3,speed:-0.7,phase:2.1,width:0.10},
+    {color:2,tilt:3.7,spin:0.13,wave:0.38,waves:2,speed:0.6,phase:4.2,width:0.07}
+  ];
+  var M=Math.floor(N*0.45); // points spent on ribbons; the rest are surface dust
+
+  var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
+  var rs=new Float32Array(N),rw=new Float32Array(N),rk=new Uint8Array(N),seed=new Float32Array(N);
+  for(var i=0;i<N;i++){
+    seed[i]=Math.random();
+    if(i<M){
+      rk[i]=i%RIBBONS.length;
+      rs[i]=Math.random()*Math.PI*2;
+      rw[i]=(Math.random()+Math.random()+Math.random()-1.5)/1.5; // roughly bell-shaped across the band
+    } else {
+      var u=Math.random()*2-1,th=Math.random()*Math.PI*2,r=Math.sqrt(1-u*u),shell=1+(Math.random()-0.5)*0.05;
+      px[i]=Math.cos(th)*r*shell;py[i]=u*shell;pz[i]=Math.sin(th)*r*shell;
+    }
+  }
+
+  var batches=[];
+  for(var b=0;b<COLORS.length*LEVELS;b++) batches.push([]);
+  var size=0,dpr=1;
+
+  function resize(){
+    dpr=Math.min(window.devicePixelRatio||1,2);
+    size=canvas.getBoundingClientRect().width*dpr;
+    canvas.width=canvas.height=Math.round(size);
+  }
+
+  function draw(t){
+    if(!size) return;
+    var cx=size/2,cy=size/2,R=size*0.3*(1+0.02*Math.sin(t*0.8)),f=size*1.6;
+    var ay=t*0.22,ax=0.35+Math.sin(t*0.3)*0.15;
+    var cY=Math.cos(ay),sY=Math.sin(ay),cX=Math.cos(ax),sX=Math.sin(ax);
+    for(var k=0;k<batches.length;k++) batches[k].length=0;
+
+    // Each ribbon's plane: basis vectors u, v and normal n, slowly turning over time
+    var basis=RIBBONS.map(function(rb){
+      var a=rb.tilt+t*rb.spin,b=0.6*Math.sin(t*0.21+rb.phase);
+      var n=[Math.sin(a)*Math.cos(b),Math.sin(b),Math.cos(a)*Math.cos(b)];
+      var u=Math.abs(n[1])<0.9?[0,1,0]:[1,0,0];
+      var v=[n[1]*u[2]-n[2]*u[1],n[2]*u[0]-n[0]*u[2],n[0]*u[1]-n[1]*u[0]];
+      var vl=Math.hypot(v[0],v[1],v[2]);v=[v[0]/vl,v[1]/vl,v[2]/vl];
+      u=[v[1]*n[2]-v[2]*n[1],v[2]*n[0]-v[0]*n[2],v[0]*n[1]-v[1]*n[0]];
+      return {u:u,v:v,n:n};
+    });
+
+    for(var i=0;i<N;i++){
+      var x,y,z,a,col,sz;
+      if(i<M){
+        var rb=RIBBONS[rk[i]],B=basis[rk[i]],s=rs[i];
+        var off=rb.wave*Math.sin(rb.waves*s+t*rb.speed+rb.phase)+rw[i]*rb.width;
+        var cs=Math.cos(s),sn=Math.sin(s);
+        x=cs*B.u[0]+sn*B.v[0]+off*B.n[0];
+        y=cs*B.u[1]+sn*B.v[1]+off*B.n[1];
+        z=cs*B.u[2]+sn*B.v[2]+off*B.n[2];
+        var l=Math.hypot(x,y,z);x/=l;y/=l;z/=l;
+        var env=0.5+0.5*Math.sin(s+t*0.5+rb.phase); // ribbons brighten and fade along their length
+        a=(0.15+0.85*env*env)*(1-0.6*Math.abs(rw[i]));
+        col=rb.color;sz=0.9+seed[i]*0.6;
+      } else {
+        x=px[i];y=py[i];z=pz[i];a=-1;col=seed[i]>0.7?1:0;sz=0.7+seed[i]*0.4;
+      }
+      var x1=x*cY+z*sY,z1=-x*sY+z*cY;
+      var y1=y*cX-z1*sX,z2=y*sX+z1*cX;
+      var depth=(z2+1)/2;
+      if(a<0){
+        var rim=Math.max(0,1-Math.abs(z2));
+        a=0.07+0.7*rim*rim*rim;
+      }
+      a*=0.45+0.55*depth;
+      if(a<0.03) continue;
+      var persp=f/(f-z2*R);
+      var level=Math.min(LEVELS-1,Math.floor(a*LEVELS));
+      batches[col*LEVELS+level].push(cx+x1*R*persp,cy-y1*R*persp,sz*dpr);
+    }
+
+    ctx.globalCompositeOperation="source-over";
+    ctx.clearRect(0,0,size,size);
+    // Soft halo around the rim
+    var glow=ctx.createRadialGradient(cx,cy,R*0.7,cx,cy,R*1.35);
+    glow.addColorStop(0,"rgba(61,220,151,0)");
+    glow.addColorStop(0.45,"rgba(61,220,151,0.10)");
+    glow.addColorStop(1,"rgba(61,220,151,0)");
+    ctx.fillStyle=glow;ctx.fillRect(0,0,size,size);
+    ctx.globalCompositeOperation="lighter";
+    for(var bi=0;bi<batches.length;bi++){
+      var pts=batches[bi];
+      if(!pts.length) continue;
+      var c=COLORS[Math.floor(bi/LEVELS)],alpha=((bi%LEVELS)+0.5)/LEVELS;
+      ctx.fillStyle="rgba("+c[0]+","+c[1]+","+c[2]+","+alpha.toFixed(3)+")";
+      ctx.beginPath();
+      for(var p=0;p<pts.length;p+=3) ctx.rect(pts[p],pts[p+1],pts[p+2],pts[p+2]);
+      ctx.fill();
+    }
+    canvas.classList.add("ready");
+  }
+
+  var running=false,t=2,last=0,raf=0;
+  function frame(now){
+    if(!running) return;
+    t+=Math.min((now-last)/1000,0.05);last=now;
+    draw(t);
+    raf=requestAnimationFrame(frame);
+  }
+  function start(){
+    if(running||reduceMotion) return;
+    running=true;last=performance.now();raf=requestAnimationFrame(frame);
+  }
+  function stop(){running=false;cancelAnimationFrame(raf);}
+
+  resize();
+  if(window.ResizeObserver) new ResizeObserver(function(){resize();draw(t);}).observe(canvas);
+  else window.addEventListener("resize",function(){resize();draw(t);});
+  draw(t);
+
+  // Only animate while the hero is on screen (this also pauses it on other pages)
+  if(window.IntersectionObserver){
+    new IntersectionObserver(function(entries){
+      entries[0].isIntersecting?start():stop();
+    }).observe(canvas);
+  } else start();
 })();
 </script>
 </body>
